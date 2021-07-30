@@ -17,6 +17,8 @@ import java.util.stream.Collectors;
 @Path("/hello")
 public class GreetingResource {
 
+    private static final boolean SAVE_FILE = false;
+
     @Inject
     MyDependency myDependency;
 
@@ -31,7 +33,7 @@ public class GreetingResource {
     @POST
     @Produces(MediaType.APPLICATION_JSON)
     @Consumes(MediaType.MULTIPART_FORM_DATA)
-    public FileConfirmationDTO uploadFile(/*@MultipartForm*/ MultipartFormDataInput input){
+    public void uploadFile(/*@MultipartForm*/ MultipartFormDataInput input) {
         System.out.println("----");
         System.out.println("parts: " + input.getParts().size());
         System.out.println(">>>");
@@ -43,11 +45,17 @@ public class GreetingResource {
 
             formDataMap.get(partName).forEach(part -> {
                 try {
+
+                    // TODO: Sprobowac za pomoca refleksji wciagnac prywatne pola z obiektu 'part',
+                    // TODO: te ktore widac w debugerze
                     String originalFileName = getFileNameFromHeader(part.getHeaders().get("Content-Disposition"));
                     InputStream is = part.getBody(InputStream.class, null);
                     byte[] receivedBytes = is.readAllBytes();
                     System.out.println("\toriginalFileName: " + originalFileName);
                     System.out.println("\tbytes: " + receivedBytes.length);
+                    if (receivedBytes.length <= 2 * 1024) {
+                        printFileContent(part);
+                    }
                     System.out.println("\t" + saveFile(receivedBytes, originalFileName));
                     System.out.println("---end of part---");
 
@@ -58,16 +66,31 @@ public class GreetingResource {
             System.out.println("--");
         }
         myDependency.setCnt(myDependency.getCnt() + 1);
-        return new FileConfirmationExtendedDTO(
-                "" + myDependency.getCnt(), myDependency.getMessage(), "info jakies");
+//        return new FileConfirmationExtendedDTO(
+//                "" + myDependency.getCnt(), myDependency.getMessage(), "info jakies");
 
     }
 
+    private void printFileContent(InputPart part) {
+        System.out.println("\t---File content: ---");
+        try {
+            System.out.println(part.getBodyAsString());
+        } catch (IOException e) {
+            System.out.println("Can't print file content!");
+        }
+        System.out.println("\t------");
+    }
+
     private String saveFile(byte[] receivedBytes, String originalFileName) throws IOException {
-        OutputStream out = new FileOutputStream(originalFileName);
-        out.write(receivedBytes);
-        out.close();
-        return "File \"" + originalFileName + "\" saved.";
+        if (SAVE_FILE) {
+            OutputStream out = new FileOutputStream(originalFileName);
+            out.write(receivedBytes);
+            out.close();
+
+            return "File \"" + originalFileName + "\" saved.";
+        } else {
+            return "File saving is OFF";
+        }
     }
 
     private String getFileNameFromHeader(List<String> headers) {
