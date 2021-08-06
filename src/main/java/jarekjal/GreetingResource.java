@@ -18,6 +18,7 @@ import java.util.stream.Collectors;
 public class GreetingResource {
 
     private static final boolean SAVE_FILE = false;
+    private StringBuilder response = new StringBuilder();
 
     @Inject
     MyDependency myDependency;
@@ -33,42 +34,35 @@ public class GreetingResource {
     @POST
     @Produces(MediaType.APPLICATION_JSON)
     @Consumes(MediaType.MULTIPART_FORM_DATA)
-    public void uploadFile(/*@MultipartForm*/ MultipartFormDataInput input) {
-        System.out.println("----");
-        System.out.println("parts: " + input.getParts().size());
-        System.out.println(">>>");
-        Map<String, List<InputPart>> formDataMap = input.getFormDataMap();
-        int partCount = 0;
-        for (String partName : formDataMap.keySet()) {
-            System.out.println("part " + partCount++ + ":");
-            System.out.println("\tpart name: " + partName);
-
-            formDataMap.get(partName).forEach(part -> {
-                try {
-
-                    // TODO: Sprobowac za pomoca refleksji wciagnac prywatne pola z obiektu 'part',
-                    // TODO: te ktore widac w debugerze
-                    String originalFileName = getFileNameFromHeader(part.getHeaders().get("Content-Disposition"));
-                    InputStream is = part.getBody(InputStream.class, null);
-                    byte[] receivedBytes = is.readAllBytes();
-                    System.out.println("\toriginalFileName: " + originalFileName);
-                    System.out.println("\tbytes: " + receivedBytes.length);
-                    if (receivedBytes.length <= 2 * 1024) {
-                        printFileContent(part);
-                    }
-                    System.out.println("\t" + saveFile(receivedBytes, originalFileName));
-                    System.out.println("---end of part---");
-
-                } catch (IOException e) {
-                    e.printStackTrace();
-                }
-            });
-            System.out.println("--");
+    public String uploadFile(/*@MultipartForm*/ MultipartFormDataInput input) {
+        if (messageContainsParts(input)) {
+            saveCorrespondingPartsToFiles(input.getFormDataMap());
         }
-        myDependency.setCnt(myDependency.getCnt() + 1);
-//        return new FileConfirmationExtendedDTO(
-//                "" + myDependency.getCnt(), myDependency.getMessage(), "info jakies");
+        return response.toString();
+    }
 
+    private void saveCorrespondingPartsToFiles(Map<String, List<InputPart>> partNameToPartList) {
+        Set<String> partNames = partNameToPartList.keySet();
+        for (String partName : partNames) {
+            List<InputPart> inputParts = partNameToPartList.get(partName);
+            inputParts.forEach(this::savePartAsFile);
+        }
+    }
+
+    private void savePartAsFile(InputPart part) {
+        String originalFileName = getFileName(part.getHeaders().get("Content-Disposition"));
+        try {
+            InputStream is = part.getBody(InputStream.class, null);
+            byte[] receivedBytes = is.readAllBytes();
+            response.append("\toriginalFileName: ").append(originalFileName);
+            saveFile(receivedBytes, originalFileName);
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    private boolean messageContainsParts(MultipartFormDataInput input) {
+        return input.getParts().size() > 0;
     }
 
     private void printFileContent(InputPart part) {
@@ -81,31 +75,40 @@ public class GreetingResource {
         System.out.println("\t------");
     }
 
-    private String saveFile(byte[] receivedBytes, String originalFileName) throws IOException {
+    private void saveFile(byte[] receivedBytes, String originalFileName) throws IOException {
         if (SAVE_FILE) {
             OutputStream out = new FileOutputStream(originalFileName);
             out.write(receivedBytes);
             out.close();
-
-            return "File \"" + originalFileName + "\" saved.";
-        } else {
-            return "File saving is OFF";
         }
     }
 
-    private String getFileNameFromHeader(List<String> headers) {
+    private String getFileName(List<String> headers) {
         String result = "fileName_" + UUID.randomUUID();
         if (headers.size() == 1) {
-            String header = headers.get(0);
-            String[] attributes = header.split("; ");
-            List<String> fileNameAttributes = Arrays.asList(attributes).stream().filter(attr -> attr.contains("filename")).collect(Collectors.toList());
-            if (fileNameAttributes.size() == 1) {
-                String fileNameAttribute = fileNameAttributes.get(0);
-                String[] fileNameAttributeSplitted = fileNameAttribute.split("=");
-                if (fileNameAttributeSplitted.length == 2) {
-                    result = fileNameAttributeSplitted[1].replace("\"", "");
-                }
-            }
+            result = extractFileName(headers.get(0)).orElse(result);
+        }
+        return result;
+    }
+
+    private Optional<String> extractFileName(String header) {
+        Optional<String> result = Optional.empty();
+        String[] attributes = header.split("; ");
+        List<String> fileNameAttributes = Arrays.asList(attributes).stream().filter(attr -> attr.contains("filename")).collect(Collectors.toList());
+        if (fileNameAttributes.size() == 1) {
+            String fileNameAttribute = fileNameAttributes.get(0);
+            result = Optional.ofNullable(extractRightSideOfEquation(fileNameAttribute));
+        }
+        return result;
+    }
+
+    private String extractRightSideOfEquation(String equationCandidate) {
+        String result;
+        try {
+            Equation equation = new Equation(equationCandidate);
+            result = equation.getRightSide();
+        } catch (IllegalArgumentException e) {
+            result = "";
         }
         return result;
     }
